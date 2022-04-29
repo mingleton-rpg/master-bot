@@ -168,7 +168,7 @@ var currentAirdrop = {
     dropDate: null
 };
 
-const isProduction = false;
+const isProduction = true;
 const serverDomain = isProduction === true ? config.apiServer.productionServerDomain : config.apiServer.devServerDomain;
 const passKeySuffix = '?passKey=joe_mama';
 

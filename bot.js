@@ -201,8 +201,8 @@ const passKeySuffix = '?passKey=joe_mama';
         console.log(weighting);
 
         // Run a chance check with the calculated weight
-        if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
-        // clearInterval(intervalID);
+        // if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
+        // // clearInterval(intervalID);
 
         console.log('SENDING AIRDROP --------------------------------------------------------');
 
@@ -583,7 +583,7 @@ client.on('interactionCreate', async interaction => {
 
             // Add the prize to the user's account
             var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.prizeMoney}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
-            if (response.status !== 200) { if (err) { interaction.update('Something went wrong. Sorry!'); return; } }
+            if (response.status !== 200) { interaction.update('Something went wrong. Sorry!'); return; }
             const accountBalance = await response.json();
             console.log(accountBalance);
 

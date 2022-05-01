@@ -203,8 +203,8 @@ const passKeySuffix = '?passKey=joe_mama';
         console.log(weighting);
 
         // Run a chance check with the calculated weight
-        // if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
-        clearInterval(intervalID);
+        if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
+        // clearInterval(intervalID);
 
         console.log('SENDING AIRDROP --------------------------------------------------------');
 

@@ -203,8 +203,8 @@ const passKeySuffix = '?passKey=joe_mama';
         console.log(weighting);
 
         // Run a chance check with the calculated weight
-        if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
-        // clearInterval(intervalID);
+        // if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
+        clearInterval(intervalID);
 
         console.log('SENDING AIRDROP --------------------------------------------------------');
 
@@ -583,7 +583,7 @@ client.on('interactionCreate', async interaction => {
             // Clear the airdrop expiration timeout
             clearTimeout(currentAirdrop.timeout);
 
-            await interaction.update({ components: [] });
+            await interaction.message.delete();
 
             // Add the prize to the user's account
             var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.prizeMoney}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
@@ -602,7 +602,7 @@ client.on('interactionCreate', async interaction => {
                 footer: { text: `It took @${userInfo.displayName} ${convertHMS(claimDelay)} to claim this drop.`}
             }
 
-            await interaction.update({ embeds: [ embed ], components: [] });
+            await interaction.reply({ embeds: [ embed ], components: [] });
 
         } else if (interaction.customId.includes('unequip_armour')) {
 

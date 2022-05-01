@@ -583,6 +583,8 @@ client.on('interactionCreate', async interaction => {
             // Clear the airdrop expiration timeout
             clearTimeout(currentAirdrop.timeout);
 
+            await interaction.update({ components: [] });
+
             // Add the prize to the user's account
             var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.prizeMoney}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
             if (response.status !== 200) { interaction.update('Something went wrong. Sorry!'); return; }

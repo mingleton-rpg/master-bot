@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 // MODULES ----------------------------------------------------------------------------
 /** Discord.JS */
 const { REST } = require('@discordjs/rest');

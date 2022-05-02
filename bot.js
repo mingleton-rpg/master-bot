@@ -588,14 +588,14 @@ client.on('interactionCreate', async interaction => {
 
             await interactionMessage.edit({ components: [] });
 
+            // Calculate time between drop and claim
+            const claimDelay = Math.abs((new Date().getTime() - currentAirdrop.dropDate) / 1000);
+
             // Add the prize to the user's account
             var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.prizeMoney}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
             if (response.status !== 200) { interactionMessage.edit('Something went wrong. Sorry!'); return; }
             const accountBalance = await response.json();
             console.log(accountBalance);
-
-            // Calculate time between drop and claim
-            const claimDelay = Math.abs((new Date().getTime() - currentAirdrop.dropDate) / 1000);
 
             // Edit the original message
             const embed = { 

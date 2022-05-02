@@ -36,13 +36,6 @@ const commands = [
             { type: 4, name: 'amount', description: 'The amount to send', required: true }
         ]
     },
-    {   // Gamble
-        name: 'gamble',
-        description: 'Gamble for a chance to win ඞmoney. Has an equal chance to return more or less than you gambled.',
-        options: [
-            { type: 4, name: 'amount', description: 'The amount to gamble', required: true }
-        ]
-    },
     {   // Leaderboard
         name: 'leaderboard',
         description: 'Displays a leaderboard of the top users in the server.',
@@ -339,49 +332,6 @@ client.on('interactionCreate', async interaction => {
 
             await returnEmbed(interaction, botInfo, 'Sent ඞmoney!', `**ඞ${dollarAmount}** has been send to **@${recipient.displayName}**. Enjoy your new cash! \n \n @${userInfo.displayName}, your balance is now ඞ${userAccountInfo.dollars - dollarAmount}. \n  @${recipient.displayName}, your balance is now ඞ${recipientAccountInfo.dollars + dollarAmount}!`);
 
-        } else if (interaction.commandName === 'gamble') { 
-            
-            const gambleAmount = interaction.options.getInteger('amount', false);
-
-            if (gambleAmount < 10) { returnEmbed(interaction, botInfo, 'You need to gamble at least **ඞ10**'); return; }
-
-            // Get the user's info
-            var response = await fetch(`${serverDomain}accounts/${userInfo.id}/?passKey=${config.apiServer.passKey}`); 
-            if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
-            const userAccountInfo = await response.json();
-
-            // Check if they have enough money
-            if (gambleAmount > userAccountInfo.dollars) { returnEmbed(interaction, botInfo, 'You do not have enough ඞ Dawson Dollars'); return; }
-
-            // Gamble that money
-            const finalAmount = getRandomArbitrary(0, gambleAmount * 2);
-
-            // Add/remove from account
-            if (finalAmount > gambleAmount) { 
-                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${finalAmount - gambleAmount}/?passKey=${config.apiServer.passKey}`, { method: 'POST' }); 
-            } else { 
-                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${0 - gambleAmount}/?passKey=${config.apiServer.passKey}`, { method: 'POST' }); 
-            }
-
-            if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
-
-            if (finalAmount > gambleAmount) { 
-                const embed = { 
-                    title: `Congratulations! You won **ඞ${finalAmount - gambleAmount}**!`,
-                    color: botInfo.displayColor,
-                    description: `Depositing **ඞ${finalAmount - gambleAmount}** into your account.`
-                }
-
-                await interaction.editReply({ embeds: [ embed ] });
-            } else {
-                const embed = { 
-                    title: `Aw, bummer :( You didn't win anything!`, 
-                    color: botInfo.displayColor,
-                    description: `Taking **ඞ${gambleAmount}** from your account.`
-                }
-
-                await interaction.editReply({ embeds: [ embed ] });
-            }
         } else if (interaction.commandName === 'leaderboard') {
 
             var response = await fetch(`${serverDomain}accounts/leaderboard/?passKey=${config.apiServer.passKey}`);

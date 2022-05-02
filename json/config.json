@@ -11,7 +11,7 @@
     },
     "airdrop" : {
         "channelID" : "962205038883786772",
-        "intervalMs" : 60000,
+        "intervalMs" : 60000,    
         "expirationMs" : 3600000
     }
 }

@@ -220,6 +220,7 @@ const passKeySuffix = '?passKey=joe_mama';
         // Assemble an embed
         const embed = {
             title: '💰 An Airdrop has appeared!',
+            color: guild.me.displayColor,
             description: `The first person to claim this airdrop will receive **ඞ${currentAirdrop.prizeMoney}**!`,
             footer: { text: `This will disappear in ${Math.round(config.airdrop.expirationMs / 60000)} minutes!` }
         }
@@ -583,11 +584,13 @@ client.on('interactionCreate', async interaction => {
             // Clear the airdrop expiration timeout
             clearTimeout(currentAirdrop.timeout);
 
-            await interaction.message.delete();
+            const interactionMessage = interaction.message;
+
+            await interactionMessage.edit({ components: [] });
 
             // Add the prize to the user's account
             var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.prizeMoney}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
-            if (response.status !== 200) { interaction.update('Something went wrong. Sorry!'); return; }
+            if (response.status !== 200) { interactionMessage.edit('Something went wrong. Sorry!'); return; }
             const accountBalance = await response.json();
             console.log(accountBalance);
 
@@ -602,7 +605,7 @@ client.on('interactionCreate', async interaction => {
                 footer: { text: `It took @${userInfo.displayName} ${convertHMS(claimDelay)} to claim this drop.`}
             }
 
-            await interaction.reply({ embeds: [ embed ], components: [] });
+            await interactionMessage.edit({ embeds: [ embed ], components: [] });
 
         } else if (interaction.customId.includes('unequip_armour')) {
 
@@ -771,3 +774,11 @@ client.on('interactionCreate', async interaction => {
 
 // RUN BOT ----------------------------------------------------------------------------
 client.login(process.env.DISCORD_API_KEY);
+
+
+
+// (async () => {      // Remove money from my account
+//     const response = await fetch(`${serverDomain}accounts/285171615690653706/add-dollars/-125/${passKeySuffix}`, { method: 'POST' });
+
+//     console.log(response);
+// })();

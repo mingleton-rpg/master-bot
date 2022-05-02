@@ -50,7 +50,7 @@ const commands = [
         options: [ 
             {
                 name: 'create',
-                description: 'Creates you a new Dawson RP account with ඞ100.',
+                description: 'Create a new Mingleton RPG account with ඞ100.',
                 type: 1
             },
             {
@@ -180,7 +180,7 @@ const passKeySuffix = '?passKey=joe_mama';
     // Set an interval
     var intervalID = setInterval(async function () {
 
-        // Find out how many people with the dawson-rp role are online
+        // Find out how many people with the mingleton-rp role are online
         const guild = client.guilds.cache.get(config.bot.guildID);
         const role = await guild.roles.fetch('962205339728633876');
         
@@ -422,18 +422,18 @@ client.on('interactionCreate', async interaction => {
                 var response = await fetch(`${serverDomain}accounts/create/${userInfo.id}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
 
                 if (response.status === 403) { 
-                    returnEmbed(interaction, botInfo, 'You already have an account', `You already have an account in the Dawson RP! Use \`/account view\` to see your stats.`, response.status); return; 
+                    returnEmbed(interaction, botInfo, 'You already have an account', `You already have an account in the Mingleton RPG! Use \`/account view\` to see your stats.`, response.status); return; 
                 } else if (response.status !== 200) {
                     returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return;
                 }
 
-                // Add the Dawson-RP Role to the user
+                // Add the mingleton-RPG Role to the user
                 const role = await userInfo.guild.roles.fetch(config.bot.roleID);
                 await interaction.member.roles.add([config.bot.roleID, role]);
 
                 // Create the embed
                 const embed = {
-                    title: 'Account created! Welcome to Dawson RP!',
+                    title: 'Account created! Welcome to Mingleton RPG!',
                     color: botInfo.displayColor,
                     description: 'Your account has been created. \n You have **ඞ100** (currency), **100 HP**.',
                     footer: { text: 'use /account view to get your account information' }

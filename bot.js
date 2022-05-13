@@ -946,19 +946,26 @@ client.on('interactionCreate', async interaction => {
 
             // Generate item embed
             let attributesText = '';
-            for (value of selectedItem.attributes) { 
-                attributesText += `**${capitalize(value.name)}:** ${value.value} \n`
+            for (const attribute of selectedItem.attributes) { 
+                if (attribute.value < 0) { attributesText += ` | ${attribute.value} ${attribute.name}` }
+                else { attributesText += ` | +${attribute.value} ${attribute.name}` }
             }
 
             let embed = {
                 title: `${selectedItem.type.emojiName} *${selectedItem.name}*`,
                 color: botInfo.displayColor,
-                description: `${selectedItem.rarity.emojiName} ${capitalize(selectedItem.rarity.name)} ${selectedItem.type.name}.`,
+                description: '',
                 fields: [
-                    { name: 'Item stats', value: attributesText || 'This item has no stats' }
+                    { 
+                        name: '**Item stats**', 
+                        value: `${selectedItem.rarity.emojiName} **${capitalize(selectedItem.rarity.name)} ${selectedItem.type.name}** ${attributesText}` 
+                    }
                 ]
             }
 
+            if (selectedItem.description !== '' || selectedItem !== null) { 
+                embed.description = `*${selectedItem.description}*`; 
+            }
             if (selectedItem.amount > 1) { embed.title += ` (${selectedItem.amount})`; }
             if (selectedItem.isEquipped) { embed.title += ` (equipped)`; }
 

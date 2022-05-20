@@ -117,9 +117,18 @@ const commands = [
                 name: 'faction',
                 description: 'Find out what factions are, how they work, and how to join one',
                 type: 1
+            },
+            {
+                name: 'airdrop',
+                description: 'Find out what Airdrops are & how they work',
+                type: 1
             }
         ]
-    }
+    },
+    {   // Changelog
+        name: 'changelog', 
+        description: 'See what\'s changed recently'
+    },
 ];
 
 const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_API_KEY);
@@ -200,8 +209,10 @@ function convertHMS(value) {
 
 // VARIABLES ---------------------------------------------------------------------------
 var currentAirdrop = {
-    prizeMoney: 0,
-    dropDate: null
+    typeID: 0,
+    dropDate: null,
+    payout: 0,
+    claimants: []
 };
 
 const isProduction = true;
@@ -217,9 +228,13 @@ const passKeySuffix = '?passKey=joe_mama';
     At the moment this just contains a random amount of cash, but will eventually include cards and other valuable items.
 */
 (async () => {
+    const isDebuggingAirdrop = false;        // CHANGE BEFORE PRODUCTION
 
     // Set an interval
     var intervalID = setInterval(async function () {
+
+        // DEBUG ONLY - CLEAR INTERVAL
+        if (isDebuggingAirdrop) { clearInterval(intervalID); }
 
         // Find out how many people with the mingleton-rp role are online
         const guild = client.guilds.cache.get(config.bot.guildID);
@@ -237,33 +252,45 @@ const passKeySuffix = '?passKey=joe_mama';
         console.log(weighting);
 
         // Run a chance check with the calculated weight
-        if(chance.weighted([true, false], [weighting, 1]) === false) { return; }
-        // clearInterval(intervalID);
+        if(isDebuggingAirdrop === false && chance.weighted([true, false], [weighting, 1]) === false) { return; }
 
         console.log('SENDING AIRDROP --------------------------------------------------------');
 
-        // Get the channel
-        const channel = await guild.channels.fetch(config.airdrop.channelID);
+        // Choose a random Airdrop to send
+        const airdropType = config.airdrop.types[chance.natural({min: 0, max: config.airdrop.types.length - 1})];
+        // const airdropType = config.airdrop.types[1];
+        console.log(airdropType);
 
-        // Generate a random prize
-        currentAirdrop.prizeMoney = getRandomArbitrary(50, 100);
-
-        // Set timer
-        currentAirdrop.dropDate = new Date().getTime();
-
-        // Assemble an embed
-        const embed = {
-            title: '💰 An Airdrop has appeared!',
-            color: guild.me.displayColor,
-            description: `The first person to claim this airdrop will receive **ඞ${currentAirdrop.prizeMoney}**!`,
-            footer: { text: `This will disappear in ${Math.round(config.airdrop.expirationMs / 60000)} minutes!` }
+        currentAirdrop = { 
+            typeID: airdropType.id,
+            dropDate: new Date().getTime(),
+            payout: chance.natural({ min: airdropType.payout.min, max: airdropType.payout.max }), 
+            claimants: []
         }
 
+        // Assemble the embed
+        let embed = {
+            title: `${airdropType.emoji} ${airdropType.name} Airdrop has appeared!`,
+            color: guild.me.displayColor,
+            footer: { text: `This will disappear in ${Math.round(airdropType.expirationMs / 60000)} minutes!` }
+        }
+
+        // Determine claimants
+        if (airdropType.maxClaimants === -1) { 
+            embed.description = `**Anybody** can claim this Airdrop and receive **ඞ${currentAirdrop.payout}**!`
+        } else if (airdropType.maxClaimants === 1) { 
+            embed.description = `The **first person** to claim this Airdrop will receive **ඞ${currentAirdrop.payout}**!`
+        } else {
+            embed.description = `The first **${airdropType.maxClaimants} people** to claim this Airdrop will and receive **ඞ${currentAirdrop.payout}**!`
+        }
+
+        // Send the message
+        const channel = await guild.channels.fetch(isDebuggingAirdrop ? config.airdrop.debugChannelID : config.airdrop.channelID);
         const airdropMessage = await channel.send({ 
             embeds: [ embed ], 
             components: [
                 { type: 1, components: [
-                    { type: 2, label: 'Claim now!', style: 1, custom_id: 'claimAirdrop' }
+                    { type: 2, label: 'Claim now!', style: 1, custom_id: 'claim_airdrop' }
                 ]}
             ]
         });
@@ -271,13 +298,18 @@ const passKeySuffix = '?passKey=joe_mama';
         // Expire the airdrop
         currentAirdrop.timeout = setTimeout(function () {
             // Clear the prize money - no cheating!
-            currentAirdrop.prizeMoney = 0;
+            currentAirdrop.payout = 0;
 
             // Delete the message
-            if (airdropMessage) { airdropMessage.delete(); }
+            if (airdropMessage) { airdropMessage.edit({ components: [], embeds: [{
+                title: `${airdropType.emoji} Time's up!`,
+                color: guild.me.displayColor,
+                content: `The time has come and gone to claim this Airdrop of **ඞ${currentAirdrop.payout}**`
+            }]}) }
 
-        }, config.airdrop.expirationMs);
-    }, config.airdrop.intervalMs);
+        }, config.airdrop.types[currentAirdrop.typeID].expirationMs);
+
+    }, isDebuggingAirdrop ? 3000 : config.airdrop.intervalMs);
 })();
 
 
@@ -594,6 +626,47 @@ client.on('interactionCreate', async interaction => {
 
                     await interaction.editReply({ embeds: [ embed ] });
 
+                } else if (interactionSubCommand === 'airdrop') { 
+
+                    const embedFields = []
+                    for (const type of config.airdrop.types) { 
+                        embedFields.push({
+                            name: `${type.emoji} ${type.name} Airdrop`,
+                            value: `
+                            **Payout:** ${type.payout.min} - ${type.payout.max}
+                            **Maximum claimants:** ${type.maxClaimants === -1 ? '∞' : type.maxClaimants}
+                            **Expiration:** ${Math.round(type.expirationMs / 60000)} minutes
+                            `, inline: true
+                        });
+                    }
+
+                    // Create the embeds
+                    const embeds = [];
+                    embeds.push({
+                        title: '🪂 About Airdrops • Help',
+                        color: botInfo.displayColor,
+                        description: `Airdrops are an excellent and competitive way to earn income in the Mingleton world. At random times throughout the day, an Airdrop will appear in the **#🪂-airdrops** channel. Read on to find out about each type, and how often they appear`,
+                        fields: [
+                            {
+                                name: '**Appearance rarity**',
+                                value: `
+                                Airdrops have a probability of appearing proportional to the number of people online. The equation is \`y = 0.00049x + 0.0031\`, where:
+                                • \`y\` is the probability of an Airdrop appearing, and
+                                • \`x\` is the number of people Online or DnD
+                                This will be calculated once every ${Math.round(config.airdrop.intervalMs / 60000)} minute/s.
+                                `
+                            }
+                        ]
+                    });
+
+                    embeds.push({
+                        title: 'Airdrop types',
+                        color: botInfo.displayColor,
+                        fields: [ embedFields ]
+                    })
+
+                    await interaction.editReply({ embeds: embeds });
+
                 }
 
             } else if (interaction.commandName === 'faction') { 
@@ -740,7 +813,7 @@ client.on('interactionCreate', async interaction => {
                     }
 
                     // Return to user
-                    returnEmbed(interaction, botInfo, 'Invite sent!', `I'll let you know if they accepts or declines your request!`);
+                    returnEmbed(interaction, botInfo, 'Invite sent!', `I'll let you know if they accept or decline your request!`);
 
 
                 } else if (interactionSubCommand === 'leave') { 
@@ -831,6 +904,40 @@ client.on('interactionCreate', async interaction => {
 
                     interaction.editReply({ embeds: [ embed ] });
                 }
+            } else if (interaction.commandName === 'changelog') { 
+
+                let embeds = [];
+    
+                embeds.push({
+                    color: botInfo.displayColor,
+                    title: 'Airdrop v2 Update • 22w06a', 
+                    description: `Introduced a vastly-improved Airdrop system, as well as a few minor bug fixes & improvements.`,
+                    fields: [
+                        {
+                            name: 'Airdrops v2',
+                            value: `
+                                There are now **3 Airdrop types**, each with unique behaviour:
+                                • 💰 The Ultra Airdrop: The one you know and love, but now with a payout of up to ඞ200!
+                                • 🤑 The Super Airdrop: 4 people can collect up to ඞ70!
+                                • 💸 The Regular Airdrop: Everybody can collect up to ඞ30 before this Airdrop expires!
+                                For more help, use \`/help airdrop\`
+                            `,
+                            inline: false
+                        },
+                        {
+                            name: 'Bug fixes & improvements',
+                            value: `
+                                • Fixed various spelling errors
+                                • Added an 'Airdrop claim in progress' state to reduce confusion about claims
+                                • Patched multi-user claiming of Airdrops
+                            `,
+                            inline: false
+                        },
+                    ],
+                    footer: { text: 'Released 20/05/2022'}
+                });
+    
+                await interaction.editReply({ embeds: embeds });
             }
 
         } else if (interaction.isButton()) {        // BUTTON INTERACTIONS
@@ -838,33 +945,84 @@ client.on('interactionCreate', async interaction => {
 
             // console.log(interaction);
             
-            if (interaction.customId === 'claimAirdrop') {
-
-                // Clear the airdrop expiration timeout
-                clearTimeout(currentAirdrop.timeout);
-
+            if (interaction.customId === 'claim_airdrop') {
                 const interactionMessage = interaction.message;
 
-                await interactionMessage.edit({ components: [] });
+                // Get the type of Airdrop
+                const airdropType = config.airdrop.types.find(ad => ad.id === currentAirdrop.typeID);
+
+                // Check if this user has already claimed the Airdrop
+                const claimCheckUser = currentAirdrop.claimants.find(user => user.id === userInfo.id);
+                if (claimCheckUser) { return }
+
+                // Add user to that list
+                currentAirdrop.claimants.push({
+                    id: userInfo.id,
+                    displayName: userInfo.displayName
+                });
 
                 // Calculate time between drop and claim
                 const claimDelay = Math.abs((new Date().getTime() - currentAirdrop.dropDate) / 1000);
 
-                // Add the prize to the user's account
-                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.prizeMoney}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
-                if (response.status !== 200) { interactionMessage.edit('Something went wrong. Sorry!'); return; }
-                const accountBalance = await response.json();
-                console.log(accountBalance);
+                // Update the embed
+                if (airdropType.maxClaimants !== -1 && currentAirdrop.claimants.length >= airdropType.maxClaimants) { 
+                    
+                    // Edit the message   
+                    await interactionMessage.edit({ components: [], embeds: [{
+                        title: `${airdropType.emoji} This Airdrop is being claimed!`,
+                        color: botInfo.displayColor,
+                        description: `Check back in a second, when this claim has been processed.`,
+                        footer: { text: `It took @${userInfo.displayName} ${convertHMS(claimDelay)} to claim this drop.`}
+                    }] });
 
-                // Edit the original message
-                const embed = { 
-                    title: `💰 Claimed by @${userInfo.displayName}!`,
-                    color: botInfo.displayColor,
-                    description: `You've won **ඞ${currentAirdrop.prizeMoney}**! Your balance is now **ඞ${accountBalance.dollars}**.`,
-                    footer: { text: `It took @${userInfo.displayName} ${convertHMS(claimDelay)} to claim this drop.`}
+                    // Clear the airdrop expiration timeout
+                    clearTimeout(currentAirdrop.timeout);
                 }
 
-                await interactionMessage.edit({ embeds: [ embed ], components: [] });
+                // Add the prize to the user's account
+                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-dollars/${currentAirdrop.payout}/?passKey=${config.apiServer.passKey}`, { method: 'POST' });
+                if (response.status !== 200) { interactionMessage.edit('Something went wrong. Sorry! (error: ' + response.status); return; }
+                const accountBalance = await response.json();
+
+                // Send a DM to the user
+                if (airdropType.maxClaimants !== 1) { 
+                    const dmChannel = await interaction.member.createDM();
+                    await dmChannel.send({ 
+                        embeds: [{
+                            title: `${airdropType.emoji} You claimed an Airdrop!`,
+                            color: botInfo.displayColor,
+                            description: `You claimed **ඞ${currentAirdrop.payout}**! Your balance is now **ඞ${accountBalance.dollars}**.`
+                        }]
+                    });
+                }
+
+                // Update the message
+                if (airdropType.maxClaimants === 1) { 
+                    const embed = { 
+                        title: `💰 Claimed by @${userInfo.displayName}!`,
+                        color: botInfo.displayColor,
+                        description: `You've won **ඞ${currentAirdrop.payout}**! Your balance is now **ඞ${accountBalance.dollars}**.`,
+                        footer: { text: `It took @${userInfo.displayName} ${convertHMS(claimDelay)} to claim this drop.`}
+                    }
+
+                    await interactionMessage.edit({ embeds: [ embed ], components: [] });
+                } else if (airdropType.maxClaimants === -1 || currentAirdrop.claimants.length < airdropType.maxClaimants) { 
+                    await interactionMessage.edit({ content: `Claimed by **${currentAirdrop.claimants.length}** people so far!` });
+                } else { 
+                    let claimants = currentAirdrop.claimants.reduce((acc, curr) => { 
+                        return acc + `**@${curr.displayName}**, `
+                    }, '');
+                    claimants = claimants.slice(0, -2);
+
+                    const embed = { 
+                        title: `${airdropType.emoji} This Airdrop has been claimed!`,
+                        color: botInfo.displayColor,
+                        description: `This Airdrop of **ඞ${currentAirdrop.payout}** was claimed by ${claimants}!`,
+                        footer: { text: `The last claimant took ${convertHMS(claimDelay)} to claim this drop.`}
+                    }
+
+                    await interactionMessage.edit({ embeds: [ embed ], components: [], content: null });
+                }
 
             } else if (interaction.customId.includes('unequip_armour')) {
 
@@ -1144,7 +1302,7 @@ client.login(process.env.DISCORD_API_KEY);
 
 
 // (async () => {      // Remove money from my account
-//     const response = await fetch(`${serverDomain}accounts/285171615690653706/add-dollars/-125/${passKeySuffix}`, { method: 'POST' });
+//     const response = await fetch(`${serverDomain}accounts/312163345874550784/add-dollars/-50/${passKeySuffix}`, { method: 'POST' });
 
 //     console.log(response);
 // })();

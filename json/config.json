@@ -11,7 +11,42 @@
     },
     "airdrop" : {
         "channelID" : "962205038883786772",
+        "debugChannelID" : "970633876147933225",
         "intervalMs" : 60000,    
-        "expirationMs" : 3600000
+        "types" : [
+            {
+                "id" : 0,
+                "name" : "An Ultra",
+                "emoji" : "💰",
+                "payout" : {
+                    "min" : 70,
+                    "max" : 250
+                },
+                "maxClaimants" : 1,
+                "expirationMs" : 3600000
+            },
+            {
+                "id" : 1,
+                "name" : "A Super",
+                "emoji" : "🤑",
+                "payout" : {
+                    "min" : 30,
+                    "max" : 70
+                },
+                "maxClaimants" : 4,
+                "expirationMs" : 600000
+            },
+            {
+                "id" : 2,
+                "name" : "A Regular",
+                "emoji" : "💸",
+                "payout" : {
+                    "min" : 10,
+                    "max" : 30
+                },
+                "maxClaimants" : -1,
+                "expirationMs" : 600000
+            }
+        ]
     }
 }

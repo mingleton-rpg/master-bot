@@ -40,6 +40,10 @@ const commands = [
         name: 'leaderboard',
         description: 'Displays a leaderboard of the top users in the server.',
     },
+    {   // lb (same as leaderboard)
+        name: 'lb',
+        description: 'Displays a leaderboard of the top users in the server.',
+    },
     {   // Inventory
         name: 'inventory', 
         description: 'Check the items in your inventory'
@@ -55,7 +59,7 @@ const commands = [
             },
             {
                 name: 'view',
-                description: 'Retrieves another person\'s account, or yours if left blank',
+                description: 'Take a look at someone\'s account!',
                 type: 1,
                 options: [
                     { type: 6, name: 'player', description: 'The player to look up.', required: false }
@@ -125,6 +129,13 @@ const commands = [
             }
         ]
     },
+    {   // Profile (same as /account view)
+        name: 'profile',
+        description: 'Take a look at someone\'s profile!',
+        options: [
+            { type: 6, name: 'player', description: 'The player to look up.', required: false }
+        ]
+    },
     {   // Changelog
         name: 'changelog', 
         description: 'See what\'s changed recently'
@@ -154,6 +165,7 @@ const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_API_KEY);
 // ASSISTANT FUNCTIONS -----------------------------------------------------------------
 /** Return an error message from the interaction */
 async function returnEmbed(interaction, botInfo, title, description, errorCode) { 
+
     var embed = new MessageEmbed({ 
         title: title,
         description: description,
@@ -161,7 +173,9 @@ async function returnEmbed(interaction, botInfo, title, description, errorCode) 
     });
 
     if (errorCode) { embed.footer = { text: `Error ${errorCode}` } }
-    interaction.editReply({ embeds: [ embed ] });
+
+    if (interaction.replied === false) { interaction.reply({ embeds: [ embed ] }); }
+    else { interaction.editReply({ embeds: [ embed ] }); }
 }
 
 /** Get a random number between the min & max */
@@ -203,6 +217,229 @@ function convertHMS(value) {
 
     if (hours === 0) { return `${minutes}:${seconds}`;} 
     else { return `${hours}:${minutes}:${seconds}`; }
+}
+
+
+
+// GENERATOR FUNCTIONS -----------------------------------------------------------------
+/** Generate the Profile embed */
+async function generateProfile(userInfo, botInfo) { 
+
+    // Get that user's account
+    var response = await fetch(`${serverDomain}accounts/${userInfo.id}/${passKeySuffix}`);
+    if (response.status !== 200) { return [false, 'Internal server error']; }
+
+    // Get the inventory
+    const userAccountInfo = await response.json();
+    const inventory = userAccountInfo.inventory;
+    const userAvatar = await userInfo.member.avatarURL() || await userInfo.member.user.avatarURL();
+
+    // Create the profile embed
+    let profileEmbed = {
+        title: `**@${userInfo.displayName}**`,
+        color: botInfo.displayColor,
+        thumbnail: { url: userAvatar },
+        description: `ඞ${userAccountInfo.dollars} \n ${userAccountInfo.hp} HP`,
+        fields: []
+    }
+
+    if (userAccountInfo.faction) { 
+        profileEmbed.footer = { text: `Part of ${userAccountInfo.faction.emojiName} ${userAccountInfo.faction.name}` }
+    }
+
+    // Show equipped items
+    const equippedItems = inventory.filter(item => item.isEquipped === true);
+    // console.log(equippedItems);
+    if (equippedItems.length === 0) { 
+        profileEmbed.fields.push({
+            name: 'Equipped items!',
+            value: 'There are no items equipped!',
+            inline: false
+        });
+    } else {
+
+        const itemsText = equippedItems.reduce((acc, curr) => {
+            return acc + `${curr.rarity.emojiName} ${curr.type.emojiName} *${curr.name}* \n`
+        }, '');
+
+        profileEmbed.fields.push({
+            name: `**Equipped items**`,
+            value: itemsText,
+            inline: false
+        });
+    }
+
+    return profileEmbed;
+}
+
+/** Generate the Inventory embeds 
+ * @param {UserInfo} userInfo Discord generated user information
+ * @param {BotInfo} botInfo standard bot information
+ * @param {UUID} itemID server-generated item ID
+*/
+async function generateInventory(userInfo, botInfo, itemID, actionTitle, actionDescription) { 
+
+    // Get that user's account
+    var response = await fetch(`${serverDomain}accounts/${userInfo.id}/${passKeySuffix}`);
+    if (response.status !== 200) { return [false, 'Internal server error']; }
+
+    // Get the inventory
+    const userAccountInfo = await response.json();
+    const inventory = userAccountInfo.inventory;
+
+    // Assemble embeds
+    const embeds = [];
+
+    // Get the user's profile
+    embeds.push(await generateProfile(userInfo, botInfo));
+
+    // Get the selected item, if relevant
+    const selectedItem = inventory.find(x => x.id === itemID);
+    if (selectedItem) { 
+        console.log(selectedItem);
+
+        // Generate item attributes text
+        let attributesText = '';
+        for (const attribute of selectedItem.attributes) { 
+            if (attribute.value < 0) { attributesText += ` | ${attribute.value} ${attribute.name}` }
+            else { attributesText += ` | +${attribute.value} ${attribute.name}` }
+
+            if (attribute.duration && attribute.duration > 1) { attributesText += `, ${attribute.duration} duration`; }
+        }
+
+        // Add an embed for that item
+        let itemEmbed = {
+            title: `${selectedItem.type.emojiName} *${selectedItem.name}*`,
+            color: botInfo.displayColor,
+            description: '',
+            fields: [
+                { 
+                    name: '**Item stats**', 
+                    value: `${selectedItem.rarity.emojiName} **${capitalize(selectedItem.rarity.name)} ${selectedItem.type.name}** ${attributesText}` 
+                }
+            ]
+        };
+        embeds.push(itemEmbed);
+
+        // Add lore
+        if (selectedItem.description != '' && selectedItem.description != null) { 
+            itemEmbed.description = `*${selectedItem.description}*`;
+        }
+
+        // Add title modifiers
+        if (selectedItem.amount > 1) { itemEmbed.title += ` (${selectedItem.amount})`; }
+        if (selectedItem.isEquipped) { itemEmbed.title += ` (equipped)`; }
+    }
+
+
+    // Action 
+    if (actionTitle) { 
+        let actionEmbed = {
+            title: actionTitle,
+            color: botInfo.displayColor,
+            timestamp: Date.now()
+        }
+
+        if (actionDescription) { actionEmbed.description = actionDescription; }
+        embeds.push(actionEmbed);
+    }
+
+
+    // Compose options & get other items
+    const selectOptions = [];
+    for (item of inventory) {
+
+        const option = { 
+            emoji: { name: item.type.emojiName },
+            label: item.name,
+            value: item.id,
+            description: capitalize(item.rarity.name) + ' ' + item.type.name,
+        }
+
+        if (selectedItem && item.id === selectedItem.id) {
+            option.default = true;
+        }
+
+        selectOptions.push(option);
+    }
+
+    // Compile message components 
+    const messageComponents = [];
+    if (selectOptions.length > 0) { 
+        messageComponents.push({ 
+            type: 1, 
+            components: [
+                {
+                    type: 3,
+                    customId: 'item_select',
+                    options: selectOptions,
+                    placeholder: 'Choose an item...'
+                }
+            ]
+        });
+    }
+
+
+    // Add buttons
+    if (selectedItem) {
+        const buttonList = [{
+            type: 2,
+            style: 4,
+            label: 'Drop',
+            customId: 'item_drop_' + selectedItem.id,
+        }];
+        for (item of selectedItem.type.functions) {
+            let button = {
+                type: 2,
+                style: item.style,
+                label: capitalize(item.label),
+                customId: item.id + selectedItem.id,
+                disabled: false
+            }
+
+            // EQUIP/UNEQUIP ARMOUR
+            if (item.id === 'item_equip_') { button.disabled = selectedItem.isEquipped; } 
+            else if (item.id === 'item_unequip_') { button.disabled = !selectedItem.isEquipped; }
+
+            // CONSUME button
+            if (item.id === 'item_consume_') {
+                
+                // Calculate how much health this item might add
+                const hp = selectedItem.attributes.find(s => s.name == 'health');
+                if (hp) { 
+                    const healthAdd = Math.min(hp.value, 100 - userAccountInfo.hp);
+                    if (healthAdd <= 0) { button.disabled = true; }
+                    else { button.label += ` (+${healthAdd} HP)`}
+                } else { 
+                    button.disabled = true;
+                }
+            }
+
+            // SWING button
+            if (item.id === 'weapon_swing_') {
+
+                // If <=0, don't allow
+                const durability = selectedItem.attributes.find(s => s.name == 'durability');
+                if (!durability || durability.value <= 0) { button.disabled = true; }
+            }
+
+            buttonList.push(button);
+        }
+
+        messageComponents.push({
+            type: 1,
+            components: buttonList
+        })
+    }
+
+
+
+    // Return message content
+    return ({ 
+        embeds: embeds,
+        components: messageComponents
+    });
+
 }
 
 
@@ -341,7 +578,8 @@ client.on('interactionCreate', async interaction => {
             displayName: interaction.member.displayName,
             id: interaction.member.id,
             guild: interaction.guild,
-            isBot: (interaction.member.user.bot)
+            isBot: (interaction.member.user.bot),
+            member: interaction.member
         }
         console.log('NEW COMMAND ------------------------------------------------------------');
 
@@ -407,7 +645,7 @@ client.on('interactionCreate', async interaction => {
 
                 await returnEmbed(interaction, botInfo, 'Sent ඞmoney!', `**ඞ${dollarAmount}** has been send to **@${recipient.displayName}**. Enjoy your new cash! \n \n @${userInfo.displayName}, your balance is now ඞ${userAccountInfo.dollars - dollarAmount}. \n  @${recipient.displayName}, your balance is now ඞ${recipientAccountInfo.dollars + dollarAmount}!`);
 
-            } else if (interaction.commandName === 'leaderboard') {
+            } else if (interaction.commandName === 'leaderboard' || interaction.commandName === 'lb') {
 
                 var response = await fetch(`${serverDomain}accounts/leaderboard/?passKey=${config.apiServer.passKey}`);
                 if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
@@ -432,60 +670,7 @@ client.on('interactionCreate', async interaction => {
                 await interaction.editReply({ embeds: [ embed ] });
             } else if (interaction.commandName === 'inventory') {
 
-                // Get that user's account
-                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/?passKey=${config.apiServer.passKey}`);
-                if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
-                const userAccountInfo = await response.json();
-
-                // Get the inventory
-                const inventory = userAccountInfo.inventory;
-
-                let embed = {
-                    title: 'Your inventory',
-                    color: botInfo.displayColor,
-                    fields: []
-                }
-
-                let armourField = {
-                    name: '🛡 Equipped Armour',
-                    value: 'You have no armour equipped!',
-                    inline: false
-                }
-                embed.fields.push(armourField);
-
-                // Compose options & get other items
-                let selectOptions = [];
-                for (item of inventory) {
-
-                    const option = { 
-                        emoji: { name: item.type.emojiName },
-                        label: item.name,
-                        value: item.id,
-                        description: capitalize(item.rarity.name) + ' ' + item.type.name
-                    }
-                    selectOptions.push(option);
-                }
-
-                let messageComponents = [];
-                if (selectOptions.length > 0) { 
-                    messageComponents.push({ 
-                        type: 1, 
-                        components: [
-                            {
-                                type: 3,
-                                customId: 'classSelect1',
-                                options: selectOptions,
-                                placeholder: 'Choose an item...'
-                            }
-                        ]
-                    });
-                }
-
-                // Send message
-                await interaction.editReply({ 
-                    embeds: [ embed ],
-                    components: messageComponents
-                });
+                await interaction.editReply(await generateInventory(userInfo, botInfo, null));
 
             } else if (interaction.commandName === 'account') {
 
@@ -518,33 +703,19 @@ client.on('interactionCreate', async interaction => {
 
                 } else if (interactionSubCommand === 'view') {
 
-                    const player = interaction.options.getMember('player', false) || interaction.member;
-
-                    // Get this user
-                    var response = await fetch(`${serverDomain}accounts/${player.id}/?passKey=${config.apiServer.passKey}`);
-
-                    if (response.status === 404) { 
-                        returnEmbed(interaction, botInfo, 'You already have an account', `That player doesn't have an account. Use \`/account create\` to create one.`, response.status); return; 
-                    } else if (response.status !== 200) { 
-                        returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return;
+                    const player = interaction.options.getMember('player', false);
+                    let playerInfo = userInfo;
+                    if (player) { 
+                        playerInfo = { 
+                            displayName: player.displayName,
+                            id: player.id,
+                            guild: userInfo.guild,
+                            isBot: (player.user.bot),
+                            member: player
+                        }
                     }
 
-                    const userAccountInfo = await response.json();
-                    const userAvatar = await player.avatarURL() || await player.user.avatarURL();
-
-                    // Create the embed
-                    let embed = {
-                        title: `**@${player.displayName}**`,
-                        color: botInfo.displayColor,
-                        thumbnail: { url: userAvatar },
-                        description: `ඞ${userAccountInfo.dollars} \n ${userAccountInfo.hp} HP`
-                    }
-
-                    if (userAccountInfo.faction) { 
-                        embed.footer = { text: `Part of ${userAccountInfo.faction.emojiName} ${userAccountInfo.faction.name}` }
-                    }
-
-                    await interaction.editReply({ embeds: [ embed ] });
+                    await interaction.editReply({ embeds: [ await generateProfile(playerInfo, botInfo) ] });
                 }
             } else if (interaction.commandName === 'help') { 
 
@@ -904,9 +1075,53 @@ client.on('interactionCreate', async interaction => {
 
                     interaction.editReply({ embeds: [ embed ] });
                 }
+            } else if (interaction.commandName === 'profile') { 
+
+                const player = interaction.options.getMember('player', false);
+                let playerInfo = userInfo;
+                if (player) { 
+                    playerInfo = { 
+                        displayName: player.displayName,
+                        id: player.id,
+                        guild: userInfo.guild,
+                        isBot: (player.user.bot),
+                        member: player
+                    }
+                }
+
+                await interaction.editReply({ embeds: [ await generateProfile(playerInfo, botInfo) ] });
+
             } else if (interaction.commandName === 'changelog') { 
 
                 let embeds = [];
+
+                embeds.push({
+                    color: botInfo.displayColor,
+                    title: 'Inventory v2 Update • 22w07a', 
+                    description: `Rebuilt the inventory and account system to handle new items, and allowed for basic interactions with weapons and items in the world.`,
+                    fields: [
+                        {
+                            name: 'Inventory v2',
+                            value: `
+                                • Items bought from both Baunders & Sons and Bruh United will now work seamlessly together, and can be interacted with.
+                                • Weapons can be swung, thrown and shot, producing various results. A number of small easter-eggs are hidden here, too.
+                                • Health-giving potions and items can be consumed.
+                                • Weapons & armour can be equipped! Only one of each type of item can be equipped at a time.
+                            `,
+                            inline: false
+                        },
+                        {
+                            name: 'Bug fixes & improvements',
+                            value: `
+                                • Improved the payouts from lower-tier Airdrops.
+                                • Added \`/lb\` and \`/profile\` as shorthand alternatives to \`/leaderboard\` and \`/account view\`, respectively.
+                                • The account/profile page will now display equipped weapons & armour to everyone.
+                            `,
+                            inline: false
+                        },
+                    ],
+                    footer: { text: 'Released 22/05/2022'}
+                });
     
                 embeds.push({
                     color: botInfo.displayColor,
@@ -1024,170 +1239,695 @@ client.on('interactionCreate', async interaction => {
                     await interactionMessage.edit({ embeds: [ embed ], components: [], content: null });
                 }
 
-            } else if (interaction.customId.includes('unequip_armour')) {
+            } else if (interaction.customId.includes('item_')) { 
 
-                // Get that user's account
-                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/?passKey=${config.apiServer.passKey}`);
-                if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
-                const userAccountInfo = await response.json();
+                await interaction.deferUpdate();
+                const interactionMessage = interaction.message;
 
-                // Get item
-                const itemID = interaction.customId.split('_')[2];
-                const item = userAccountInfo.inventory.find(x => x.id === itemID);
-                if (!item) { return }   // The user interacting was not the owner of this item
+                if (interaction.customId.includes('_equip_')) {
 
-                await interaction.deferReply();
+                    // Check if the original user sent this message
+                    if (interaction.message.interaction.user.id !== userInfo.id) { return; }
+                    
+                    // Get that user's account
+                    var response = await fetch(`${serverDomain}accounts/${userInfo.id}/${passKeySuffix}`);
+                    if (response.status !== 200) { return; }
+                    const userAccountInfo = await response.json();
 
-                if (item.isEquipped === false) { returnEmbed(interaction, botInfo, 'That item isn\'t equipped'); return; }    // The item is already unequipped
+                    // Get item
+                    const itemID = interaction.customId.split('_')[2];
+                    const item = userAccountInfo.inventory.find(x => x.id === itemID);
 
-                // Equip this item
-                var response = await fetch(`${serverDomain}items/${item.id}/equip/false/?passKey=${config.apiServer.passKey}`, {
-                    method: 'POST',
-                    body: JSON.stringify({}),
-                    headers: {'Content-Type': 'application/json'}
-                });
-                if (response.status === 404) { 
-                    returnEmbed(interaction, botInfo, 'This item does not exist', `It looks like this item no longer exists (error ${response.status}).`); return; 
-                } else if (response.status === 403) { 
-                    returnEmbed(interaction, botInfo, 'This item cannot be unequipped', `This item can't be unequipped (error ${response.status}).`); return;
-                } else if (response.status !== 200) { 
-                    returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong (error ${response.status}).`); return; 
+                    // Check for errors
+                    if (!item) { return }                               // The item can't be found
+                    if (item.isEquipped === true) { return; }           // The item is already equipped
+                    if (item.type.isEquippable === false) { return; }   // The item can't be equipped
+
+                    // const interactionMessage = interaction.message;
+
+                    // Check if an item with the same type has been equipped
+                    const typeEquipCheck = userAccountInfo.inventory.find(i => i.type.id === item.type.id && i.isEquipped === true);
+                    if (typeEquipCheck) { 
+                        
+                        // Re-render the inventory
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `You already have a ${item.type.emojiName} ${item.type.name} equipped.`,
+                            'You must unequip it to equip a new item.'
+                        ));
+                        return
+                    }
+
+                    // Equip the item
+                    var response = await fetch(`${serverDomain}items/${item.id}/equip/true/${passKeySuffix}`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                    if (response.status !== 200) { 
+                        // Re-render the inventory
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `Something went wrong (error ${response.status})`
+                        ));
+                        return;
+                    }
+
+                    // Re-render the inventory
+                    await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                        `Item equipped!`    
+                    ));
+                
+                } else if (interaction.customId.includes('_unequip_')) {
+
+                    // Check if the original user sent this message
+                    if (interaction.message.interaction.user.id !== userInfo.id) { return; }
+
+                    // Get that user's account
+                    var response = await fetch(`${serverDomain}accounts/${userInfo.id}/${passKeySuffix}`);
+                    if (response.status !== 200) { return; }
+                    const userAccountInfo = await response.json();
+
+                    // Get item
+                    const itemID = interaction.customId.split('_')[2];
+                    const item = userAccountInfo.inventory.find(x => x.id === itemID);
+
+                    // Check for errors
+                    if (!item) { return }                               // The item can't be found
+                    if (item.isEquipped === false) { return; }          // The item is already unequipped
+                    if (item.type.isEquippable === false) { return; }   // The item can't be unequipped
+;
+                    // const interactionMessage = interaction.message;
+
+                    // Unequip this item
+                    var response = await fetch(`${serverDomain}items/${item.id}/equip/false/${passKeySuffix}`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                    if (response.status !== 200) { 
+                        // Re-render the inventory
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `Something went wrong (error ${response.status})`
+                        ));
+                        return;
+                    }
+
+                    // Re-render the inventory
+                    await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                        `Item unequipped!`    
+                    ));
+
+                } else if (interaction.customId.includes('_drop_')) { 
+
+                    // Check if the original user sent this message
+                    if (interaction.message.interaction.user.id !== userInfo.id) { return; }
+
+                    // Get that user's account
+                    var response = await fetch(`${serverDomain}accounts/${userInfo.id}/${passKeySuffix}`);
+                    if (response.status !== 200) { return; }
+                    const userAccountInfo = await response.json();
+
+                    // Get item
+                    const itemID = interaction.customId.split('_')[2];
+                    const item = userAccountInfo.inventory.find(x => x.id === itemID);
+
+                    // Check for errors
+                    if (!item) { return }                               // The item can't be found
+
+                    // Attempt to unequip the item
+                    var response = await fetch(`${serverDomain}items/${item.id}/equip/false/${passKeySuffix}`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                        headers: {'Content-Type': 'application/json'}
+                    });
+
+                    // "Drop" the item
+                    await interaction.channel.send({
+                        embeds: [{
+                            title: `@${userInfo.displayName} has dropped their ${item.rarity.emojiName} ${item.type.emojiName} *${item.name}*`,
+                            description: `The first person to collect this item can keep it!`,
+                            color: botInfo.displayColor
+                        }],
+                        components: [
+                            { type: 1, components: [
+                                { type: 2, label: 'Collect', style: 1, custom_id: `item_collect_${itemID}` }
+                            ]}
+                        ]
+                    });
+
+                    // Re-render the inventory
+                    await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                        `Item dropped!`
+                    ));
+
+                } else if (interaction.customId.includes('_collect_')) { 
+
+                    // Get item
+                    const itemID = interaction.customId.split('_')[2];
+
+                    var response = await fetch(`${serverDomain}items/${itemID}/false/${passKeySuffix}`);
+                    if (response.status !== 200) { return; }
+                    const itemInfo = (await response.json())[0];
+
+                    // Send to the user
+                    var response = await fetch(`${serverDomain}items/${itemID}/transfer/${userInfo.id}/true/${passKeySuffix}`, { method: 'POST' });
+                    if (response.status !== 200) { return; }
+
+                    console.log(itemInfo);
+                    await interactionMessage.edit({ embeds: [{
+                        title: `@${userInfo.displayName} has picked up ${itemInfo.rarity.emojiName} ${itemInfo.type.emojiName} *${itemInfo.name}*`, 
+                        color: botInfo.displayColor
+                    }], components: []})
+                } else if (interaction.customId.includes('_consume_')) {
+
+                    // Check if the original user sent this message
+                    if (interaction.message.interaction.user.id !== userInfo.id) { return; }
+                    
+                    // Get that user's account
+                    var response = await fetch(`${serverDomain}accounts/${userInfo.id}/${passKeySuffix}`);
+                    if (response.status !== 200) { return; }
+                    const userAccountInfo = await response.json();
+
+                    // Get item
+                    const itemID = interaction.customId.split('_')[2];
+                    const item = userAccountInfo.inventory.find(x => x.id === itemID);
+
+                    // Check for errors
+                    if (!item) { return }                               // The item can't be found
+
+                    const interactionMessage = interaction.message;
+
+                    console.log(item);
+
+                    // Add any attributes
+                    for (const attribute of item.attributes) { 
+
+                        if (attribute.name === 'health') {              // HEALTH
+                            
+                            // Calculate HP to add
+                            let addHp = attribute.value;
+                            if (attribute.duration) { addHp = addHp * attribute.duration; } // Add the entire effect to this
+
+                            // Get that user's account
+                            var response = await fetch(`${serverDomain}accounts/${userInfo.id}/add-hp/${addHp}/${passKeySuffix}`, { method: 'POST' });
+                            if (response.status !== 200) {  
+                                // Re-render the inventory
+                                await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                    `An error occurred while adding health (error ${response.status})`
+                                ));
+                                return;
+                            }
+
+                            // Remove that item
+                            var response = await fetch(`${serverDomain}items/${itemID}/delete/${passKeySuffix}`, { method: 'POST' });
+                            if (response.status !== 200) {  
+                                // Re-render the inventory
+                                await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                    `An error occurred while removing item (error ${response.status})`
+                                ));
+                                return;
+                            }
+
+                            // Re-render the inventory
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `Consumed *${item.name}*! Added **+${addHp} HP**.`
+                            ));
+                        }
+
+                    }
+
                 }
 
-                returnEmbed(interaction, botInfo, 'Item un-equipped!');
+            } else if (interaction.customId.includes('weapon_')) { 
 
-            } else if (interaction.customId.includes('equip_armour')) { 
+                // Check if the original user sent this message
+                if (interaction.message.interaction.user.id !== userInfo.id) { return; }
+                
+                // await interaction.deferUpdate();
+                interaction.deferUpdate();
+                const interactionMessage = interaction.message;
 
-                // Get that user's account
-                var response = await fetch(`${serverDomain}accounts/${userInfo.id}/?passKey=${config.apiServer.passKey}`);
-                if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
-                const userAccountInfo = await response.json();
+                if (interaction.customId.includes('_swing_')) {
 
-                // Get item
-                const itemID = interaction.customId.split('_')[2];
-                const item = userAccountInfo.inventory.find(x => x.id === itemID);
-                if (!item) { return }   // The user interacting was not the owner of this item
+                    // Get the item
+                    const itemID = interaction.customId.split('_')[2];
+                    var response = await fetch(`${serverDomain}items/${itemID}/false/${passKeySuffix}`);
+                    if (response.status !== 200) { 
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `An error occurred while finding your item (error ${response.status})`
+                        )); return;
+                    }
+                    const itemInfo = (await response.json())[0];
 
-                await interaction.deferReply();
+                    // Remove 1 durability
+                    itemInfo.attributes.find(att => att.name === 'durability').value -= 1;
+                    console.log(itemInfo.attributes.find(att => att.name === 'durability'));
 
-                if (item.isEquipped === true || item.type.isEquippable === false) { returnEmbed(interaction, botInfo, 'That item can\'t be equipped'); return; }    // The item can't be equipped
+                    var response = await fetch(`${serverDomain}items/${itemID}/edit/${passKeySuffix}`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            name: itemInfo.name,
+                            description: itemInfo.description,
+                            rarityID: itemInfo.rarity.id,
+                            typeID: itemInfo.type.id,
+                            ownerID: itemInfo.ownerID,
+                            attributes: itemInfo.attributes
+                        }),
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (response.status !== 200) { 
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `An error occurred while removing item durability (error ${response.status})`
+                        )); return;
+                    }
 
-                // Equip this item
-                var response = await fetch(`${serverDomain}items/${item.id}/equip/true/?passKey=${config.apiServer.passKey}`, {
-                    method: 'POST',
-                    body: JSON.stringify({}),
-                    headers: {'Content-Type': 'application/json'}
-                });
-                if (response.status === 404) { 
-                    returnEmbed(interaction, botInfo, 'This item does not exist', `It looks like this item no longer exists (error ${response.status}).`); return; 
-                } else if (response.status === 403) { 
-                    returnEmbed(interaction, botInfo, 'This item cannot be equipped', `This item can't be equipped (error ${response.status}).`); return;
-                } else if (response.status !== 200) { 
-                    returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong (error ${response.status}).`); return; 
+                    const result = chance.weighted(
+                        [ 'a', 'b', 'c', 'd' ],
+                        [ 0.9, 0.09, 0.01, 0.000000001 ]
+                    );
+
+                    if (result === 'a') {           // Nothing
+
+                        const message = '...and nothing happened. ' + chance.weighted(
+                            [ 
+                                'Well, that was awkward...', 
+                                'What a waste of durability.', 
+                                'You could\'ve sworn something cool was going to happen.', 
+                                'Well, you feel like a fucking idiot now, don\'t you?',
+                                'Just keep going, there\'s something cool here...'
+                            ],
+                            [ 0.3, 0.3, 0.3, 0.1, 0.001 ]
+                        )
+                        
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You swung your weapon!', 
+                            message
+                        ));
+
+                    } else if (result === 'b') {    // Drop apple
+
+                        // Generate apple
+                        var response = await fetch(`${serverDomain}items/create/${passKeySuffix}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: 'Apple',
+                                rarityID: 1,
+                                typeID: 3,
+                                amount: 1,
+                                ownerID: userInfo.id,
+                                attributes: [ { "name" : "health", "value": 5 } ]
+                            }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while generating an apple (error ${response.status})`
+                            )); return;
+                        }
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You swung your weapon!', 
+                            `...and hit a tree, and it dropped an apple!`
+                        ));
+                    
+                    } else if (result === 'c') {    // Hit another player
+
+                        var response = await fetch(`${serverDomain}accounts/leaderboard/${passKeySuffix}`);
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while getting the leaderboard (error ${response.status})`
+                            )); return;
+                        }
+                        const accounts = await response.json();
+
+                        // Pick a random user
+                        const attackPlayer = accounts[chance.natural({ min: 0, max: accounts.length - 1 })];
+                        // const attackPlayer = { id: '312163345874550784' }
+
+                        // Remove HP (deal 1/3 the damage of that weapon), min of 1
+                        const damage = Math.ceil(itemInfo.attributes.find(i => i.name === 'damage').value / 3);
+                        var response = await fetch(`${serverDomain}accounts/${attackPlayer.id}/add-hp/${0 - damage}/${passKeySuffix}`, { method: 'POST' });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while attacking a player (error ${response.status})`
+                            )); return;
+                        }
+                        const newHealth = await response.json();
+
+                        // Get teh attacked player's info
+                        const attackPlayerInfo = await userInfo.guild.members.fetch(attackPlayer.id)
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You swung your weapon!', 
+                            `...and hit **@${attackPlayerInfo.displayName}**! They now have **${newHealth.hp} HP**.`
+                        ));
+
+                    } else if (result === 'd') {    // Give the most powerful melee weapon
+
+                        // Generate apple
+                        var response = await fetch(`${serverDomain}items/create/${passKeySuffix}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: '/KILL',
+                                description: `A weapon of mass destruction gifted to you by the devs themselves. Use it wisely. 1 in 1B chance of dropped when you swing your weapon.`,
+                                rarityID: 14,
+                                typeID: 0,
+                                amount: 1,
+                                ownerID: userInfo.id,
+                                attributes: [ 
+                                    { "name" : "dev access", "value": 1 },
+                                    { "name" : "damage", "value": 420 },
+                                    { "name" : "speed", "value": 420 },
+                                    { "name" : "durability", "value": 69 }
+                                ]
+                            }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while giving you the most powerful weapon (error ${response.status})`
+                            )); return;
+                        }
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'YOU SWUNG YOUR WEAPON!', 
+                            '...AND THE DEVS GAVE YOU THE ABILITY TO /KILL!'
+                        ));
+
+                    }
+
+                } else if (interaction.customId.includes('_shoot_')) {
+
+                    // Get the item
+                    const itemID = interaction.customId.split('_')[2];
+                    var response = await fetch(`${serverDomain}items/${itemID}/false/${passKeySuffix}`);
+                    if (response.status !== 200) { 
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `An error occurred while finding your item (error ${response.status})`
+                        )); return;
+                    }
+                    const itemInfo = (await response.json())[0];
+
+                    // Remove 1 durability
+                    itemInfo.attributes.find(att => att.name === 'durability').value -= 1;
+                    console.log(itemInfo.attributes.find(att => att.name === 'durability'));
+
+                    var response = await fetch(`${serverDomain}items/${itemID}/edit/${passKeySuffix}`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            name: itemInfo.name,
+                            description: itemInfo.description,
+                            rarityID: itemInfo.rarity.id,
+                            typeID: itemInfo.type.id,
+                            ownerID: itemInfo.ownerID,
+                            attributes: itemInfo.attributes
+                        }),
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (response.status !== 200) { 
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `An error occurred while removing item durability (error ${response.status})`
+                        )); return;
+                    }
+
+                    const result = chance.weighted(
+                        [ 'a', 'b', 'c', 'd' ],
+                        [ 0.9, 0.09, 0.01, 0.000000001 ]
+                    );
+
+                    if (result === 'a') {           // Nothing
+
+                        const message = '...and nothing happened. ' + chance.weighted(
+                            [ 
+                                'Well, that was awkward...', 
+                                'What a waste of ammo.', 
+                                'You could\'ve sworn something cool was going to happen.', 
+                                'Well, you feel like a fucking idiot now, don\'t you?',
+                                'Keep going, there\'s something cool around here, somewhere...'
+                            ],
+                            [ 0.3, 0.3, 0.3, 0.1, 0.001 ]
+                        )
+                        
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You shot your weapon!', 
+                            message
+                        ));
+
+                    } else if (result === 'b') {    // Drop apple
+
+                        // Generate apple
+                        var response = await fetch(`${serverDomain}items/create/${passKeySuffix}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: 'Apple',
+                                rarityID: 1,
+                                typeID: 3,
+                                amount: 1,
+                                ownerID: userInfo.id,
+                                attributes: [ { "name" : "health", "value": 5 } ]
+                            }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while creating an apple (error ${response.status})`
+                            )); return;
+                        }
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You shot your weapon!', 
+                            `...and it hit a tree, and dropping an apple!`
+                        ));
+                    
+                    } else if (result === 'c') {    // Hit another player
+
+                        var response = await fetch(`${serverDomain}accounts/leaderboard/${passKeySuffix}`);
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while getting the leaderboard (error ${response.status})`
+                            )); return;
+                        }
+                        const accounts = await response.json();
+
+                        // Pick a random user
+                        // const attackPlayer = accounts[chance.natural({ min: 0, max: accounts.length - 1 })];
+                        const attackPlayer = { id: '312163345874550784' }
+                        console.log(attackPlayer);
+
+                        // Remove HP (deal 1/3 the damage of that weapon), min of 1
+                        const damage = Math.ceil(itemInfo.attributes.find(i => i.name === 'damage').value / 3);
+                        var response = await fetch(`${serverDomain}accounts/${attackPlayer.id}/add-hp/${0 - damage}/${passKeySuffix}`, { method: 'POST' });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while attacking a player (error ${response.status})`
+                            )); return;
+                         }
+                        const newHealth = await response.json();
+
+                        // Get teh attacked player's info
+                        const attackPlayerInfo = await userInfo.guild.members.fetch(attackPlayer.id)
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You shot your weapon!', 
+                            `...and it hit **@${attackPlayerInfo.displayName}**! They now have **${newHealth.hp} HP**.`
+                        ));
+
+                    } else if (result === 'd') {    // Give the most powerful ranged weapon
+
+                        // Generate apple
+                        var response = await fetch(`${serverDomain}items/create/${passKeySuffix}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: 'ADMIN ABUSE',
+                                description: `With great power comes great responsibility. 1 in 1B chance of dropped when you shoot a ranged weapon.`,
+                                rarityID: 14,
+                                typeID: 1,
+                                amount: 1,
+                                ownerID: userInfo.id,
+                                attributes: [ 
+                                    { "name" : "dev access", "value": 1 },
+                                    { "name" : "damage", "value": 420 },
+                                    { "name" : "speed", "value": 420 },
+                                    { "name" : "durability", "value": 69 }
+                                ]
+                            }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while giving you the most powerful weapon (error ${response.status})`
+                            )); return;
+                        }
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'YOU SHOT YOUR WEAPON!', 
+                            '...AND THE DEVS PROVIDED YOU WITH THE POWER TO ABUSE!!!'
+                        ));
+
+                    }
+                } else if (interaction.customId.includes('_throw_')) {
+
+                    // Get the item
+                    const itemID = interaction.customId.split('_')[2];
+                    var response = await fetch(`${serverDomain}items/${itemID}/false/${passKeySuffix}`);
+                    if (response.status !== 200) { 
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `An error occurred while finding your item (error ${response.status})`
+                        )); return;
+                    }
+                    const itemInfo = (await response.json())[0];
+
+                    // Remove 1 durability
+                    itemInfo.attributes.find(att => att.name === 'durability').value -= 1;
+                    console.log(itemInfo.attributes.find(att => att.name === 'durability'));
+
+                    var response = await fetch(`${serverDomain}items/${itemID}/edit/${passKeySuffix}`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            name: itemInfo.name,
+                            description: itemInfo.description,
+                            rarityID: itemInfo.rarity.id,
+                            typeID: itemInfo.type.id,
+                            ownerID: itemInfo.ownerID,
+                            attributes: itemInfo.attributes
+                        }),
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (response.status !== 200) { 
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            `An error occurred while removing item durability (error ${response.status})`
+                        )); return;
+                    }
+
+                    const result = chance.weighted(
+                        [ 'a', 'b', 'c', 'd' ],
+                        [ 0.9, 0.09, 0.01, 0.000000001 ]
+                    );
+
+                    if (result === 'a') {           // Nothing
+
+                        const message = '...and nothing happened. ' + chance.weighted(
+                            [ 
+                                'Well, that was awkward...', 
+                                'What a waste of durability.', 
+                                'You could\'ve sworn something cool was going to happen.', 
+                                'Well, you feel like a fucking idiot now, don\'t you?',
+                                'Keep going, there\'s something cool around here, somewhere...'
+                            ],
+                            [ 0.3, 0.3, 0.3, 0.1, 0.001 ]
+                        )
+                        
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You threw your weapon!', 
+                            message
+                        ));
+
+                    } else if (result === 'b') {    // Drop apple
+
+                        // Generate apple
+                        var response = await fetch(`${serverDomain}items/create/${passKeySuffix}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: 'Apple',
+                                rarityID: 1,
+                                typeID: 3,
+                                amount: 1,
+                                ownerID: userInfo.id,
+                                attributes: [ { "name" : "health", "value": 5 } ]
+                            }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while creating an apple (error ${response.status})`
+                            )); return;
+                        }
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You threw your weapon!', 
+                            `...and it hit a tree, and dropping an apple!`
+                        ));
+                    
+                    } else if (result === 'c') {    // Hit another player
+
+                        var response = await fetch(`${serverDomain}accounts/leaderboard/${passKeySuffix}`);
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while getting the leaderboard (error ${response.status})`
+                            )); return;
+                        }
+                        const accounts = await response.json();
+
+                        // Pick a random user
+                        // const attackPlayer = accounts[chance.natural({ min: 0, max: accounts.length - 1 })];
+                        const attackPlayer = { id: '312163345874550784' }
+                        console.log(attackPlayer);
+
+                        // Remove HP (deal 1/3 the damage of that weapon), min of 1
+                        const damage = Math.ceil(itemInfo.attributes.find(i => i.name === 'damage').value / 3);
+                        var response = await fetch(`${serverDomain}accounts/${attackPlayer.id}/add-hp/${0 - damage}/${passKeySuffix}`, { method: 'POST' });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while attacking a player (error ${response.status})`
+                            )); return;
+                         }
+                        const newHealth = await response.json();
+
+                        // Get teh attacked player's info
+                        const attackPlayerInfo = await userInfo.guild.members.fetch(attackPlayer.id)
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'You threw your weapon!', 
+                            `...and it hit **@${attackPlayerInfo.displayName}**! They now have **${newHealth.hp} HP**.`
+                        ));
+
+                    } else if (result === 'd') {    // Give the most powerful throwable weapon
+
+                        // Generate weapon
+                        var response = await fetch(`${serverDomain}items/create/${passKeySuffix}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: 'THE YEET-O-MATIC 69420',
+                                description: `In this world, it's either yeet or be yeeted. 1 in 1B chance of dropped when you yeet a throwable weapon.`,
+                                rarityID: 14,
+                                typeID: 2,
+                                amount: 1,
+                                ownerID: userInfo.id,
+                                attributes: [ 
+                                    { "name" : "dev access", "value": 1 },
+                                    { "name" : "damage", "value": 420 },
+                                    { "name" : "speed", "value": 420 },
+                                    { "name" : "durability", "value": 69 }
+                                ]
+                            }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (response.status !== 200) { 
+                            await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                                `An error occurred while giving you the most powerful weapon (error ${response.status})`
+                            )); return;
+                        }
+
+                        await interactionMessage.edit(await generateInventory(userInfo, botInfo, itemID, 
+                            'YOU THREW YOUR WEAPON!', 
+                            '...AND THE DEVS PROVIDED YOU WITH THE ULTIMATE YEETER!!!'
+                        ));
+
+                    }
                 }
-
-                returnEmbed(interaction, botInfo, 'Item equipped!');
             }
 
         } else if (interaction.isMessageComponent()) { 
 
-            // Get that user's account
-            let response = await fetch(`${serverDomain}accounts/${userInfo.id}/?passKey=${config.apiServer.passKey}`);
-            if (response.status !== 200) { returnEmbed(interaction, botInfo, 'An error ocurred', `Something went wrong.`, response.status); return; }
-            const userAccountInfo = await response.json();
+            if (interaction.customId === 'item_select') {
 
-            const selectedItem = userAccountInfo.inventory.find(x => x.id === interaction.values[0]);
+                // Check if the original user sent this message
+                if (interaction.message.interaction.user.id !== userInfo.id) { return; }
 
-            if (!selectedItem) { return; }
+                await interaction.deferUpdate();
+                const interactionMessage = interaction.message;
 
-            console.log(selectedItem);
-
-            // Generate item embed
-            let attributesText = '';
-            for (const attribute of selectedItem.attributes) { 
-                if (attribute.value < 0) { attributesText += ` | ${attribute.value} ${attribute.name}` }
-                else { attributesText += ` | +${attribute.value} ${attribute.name}` }
+                await interactionMessage.edit(await generateInventory(userInfo, botInfo, interaction.values[0]));
             }
-
-            let embed = {
-                title: `${selectedItem.type.emojiName} *${selectedItem.name}*`,
-                color: botInfo.displayColor,
-                description: '',
-                fields: [
-                    { 
-                        name: '**Item stats**', 
-                        value: `${selectedItem.rarity.emojiName} **${capitalize(selectedItem.rarity.name)} ${selectedItem.type.name}** ${attributesText}` 
-                    }
-                ]
-            }
-
-            if (selectedItem.description !== '' || selectedItem !== null) { 
-                embed.description = `*${selectedItem.description}*`; 
-            }
-            if (selectedItem.amount > 1) { embed.title += ` (${selectedItem.amount})`; }
-            if (selectedItem.isEquipped) { embed.title += ` (equipped)`; }
-
-            // Compose options & get other items
-            let selectOptions = [];
-            for (item of userAccountInfo.inventory) {
-
-                const option = { 
-                    emoji: { name: item.type.emojiName },
-                    label: item.name,
-                    value: item.id,
-                    description: capitalize(item.rarity.name) + ' ' + item.type.name,
-                    default: (item.id === selectedItem.id)
-                }
-                selectOptions.push(option);
-            }
-
-            // Compose buttons
-            let buttonList = [{
-                type: 2,
-                style: 4,
-                label: 'Drop',
-                customId: 'drop_item_' + selectedItem.id,
-            }];
-            for (item of selectedItem.type.functions) {
-                let button = {
-                    type: 2,
-                    style: item.style,
-                    label: capitalize(item.label),
-                    customId: item.id + selectedItem.id,
-                    disabled: false
-                }
-
-                // Make individual decisions
-                if (item.id === 'equip_armour_') { button.disabled = selectedItem.isEquipped; } 
-                else if (item.id === 'unequip_armour_') { button.disabled = !selectedItem.isEquipped; }
-
-                buttonList.push(button);
-            }
-
-            // Add buttons to the message components
-            let components = [
-                { 
-                    type: 1, 
-                    components: [
-                        {
-                            type: 3,
-                            customId: 'classSelect1',
-                            options: selectOptions,
-                            placeholder: 'Choose an item...'
-                        }
-                    ]
-                },
-                {
-                    type: 1, 
-                    components: buttonList
-                }
-            ]
-
-
-            await interaction.update({
-                embeds: [ embed ],
-                components: components
-            });
 
         } else {                                    // OTHER
             console.log('Interaction of type ' + interaction.type + ' unaccounted for.');
@@ -1302,7 +2042,8 @@ client.login(process.env.DISCORD_API_KEY);
 
 
 // (async () => {      // Remove money from my account
-//     const response = await fetch(`${serverDomain}accounts/312163345874550784/add-dollars/-50/${passKeySuffix}`, { method: 'POST' });
+//     const id = 'e5005708-b6fc-4b51-9d43-6586ea88dcaf';
+//     const response = await fetch(`${serverDomain}items/${id}/delete/${passKeySuffix}`, { method: 'POST' });
 
 //     console.log(response);
 // })();

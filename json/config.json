@@ -30,8 +30,8 @@
                 "name" : "A Super",
                 "emoji" : "🤑",
                 "payout" : {
-                    "min" : 30,
-                    "max" : 70
+                    "min" : 40,
+                    "max" : 80
                 },
                 "maxClaimants" : 4,
                 "expirationMs" : 600000
@@ -41,8 +41,8 @@
                 "name" : "A Regular",
                 "emoji" : "💸",
                 "payout" : {
-                    "min" : 10,
-                    "max" : 30
+                    "min" : 20,
+                    "max" : 50
                 },
                 "maxClaimants" : -1,
                 "expirationMs" : 600000

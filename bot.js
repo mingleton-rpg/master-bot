@@ -174,8 +174,12 @@ async function returnEmbed(interaction, botInfo, title, description, errorCode) 
 
     if (errorCode) { embed.footer = { text: `Error ${errorCode}` } }
 
-    if (interaction.replied === false) { interaction.reply({ embeds: [ embed ] }); }
-    else { interaction.editReply({ embeds: [ embed ] }); }
+    try { 
+        await interaction.reply({ embeds: [ embed ] });
+    } catch (err) { 
+        console.log('Attempted to reply to message; failed');
+        await interaction.editReply({ embeds: [ embed ] });
+    }
 }
 
 /** Get a random number between the min & max */

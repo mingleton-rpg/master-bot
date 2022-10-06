@@ -132,3 +132,4 @@ dist
 # Node modules
 **/node_modules
 **/env
+**.env
